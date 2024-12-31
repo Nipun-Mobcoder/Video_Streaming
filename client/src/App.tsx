@@ -1,44 +1,44 @@
-import videojs from 'video.js';
-import VideoPlayer from './VideoPlayer.js';
-import { useRef } from 'react';
-import './App.css'
+import { Navigate, Route, Routes } from "react-router-dom"
+import Form from "./Form"
+import Video from "./Video";
 
-function App() {
-  const playerRef = useRef(null);
-  const videoLink = import.meta.env.VITE_VIDEO_URL
+const ProtectedRoutes = ({children}) => {
+  
+  const isLoggedIn = localStorage.getItem('user:token') !== null;
 
-  const videoPlayerOptions = {
-    controls: true,
-    responsive: true,
-    fluid: true,
-    sources: [
-      {
-        src: videoLink,
-        type: "application/x-mpegURL",
-      },
-    ],
-  };
+  if(!isLoggedIn && window.location.pathname === '/') return <Navigate to='/sign_in' />
 
-  const handlePlayerReady = (player: videojs.Player) => {
-    playerRef.current = player;
-
-    player.on("waiting", () => {
-      videojs.log("Player is waiting");
-    });
-
-    player.on("dispose", () => {
-      videojs.log("Player will dispose");
-    });
-  };
-
-  return (
-    <>
-      <div>
-        <h1>Video Player</h1>
-      </div>
-      <VideoPlayer options={videoPlayerOptions} onReady={handlePlayerReady} />
-    </>
-  );
+  else if(isLoggedIn && ['/sign_in', '/sign_up'].includes(window.location.pathname)) return <Navigate to='/' />
+  
+  return children;
 }
 
-export default App;
+function App() {
+
+  return (
+    <Routes>
+      <Route path='/' element={
+        <ProtectedRoutes>
+          <Video />
+        </ProtectedRoutes>
+      } />
+      <Route path='/sign_in' element={
+        <ProtectedRoutes>
+          <div className="bg-[#e1edff] h-screen flex justify-center items-center">
+            <Form isSignInPage={true}/>
+          </div>
+        </ProtectedRoutes>
+      } />
+      <Route path='/sign_up' element={
+        <ProtectedRoutes>
+          <div className="bg-[#e1edff] h-screen flex justify-center items-center">
+            <Form isSignInPage={false}/>
+          </div>
+        </ProtectedRoutes>
+      } />
+    </Routes>
+    
+  )
+}
+
+export default App

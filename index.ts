@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
-import { getPresignedUrl, uploadToS3 } from './utils/s3.js';
+import { getPresignedUrl, putPresignedUrl, uploadToS3 } from './utils/s3.js';
 import connectDB from './config/db.js';
 import User from './models/User.js';
 import jwt from "jsonwebtoken";
@@ -121,7 +121,7 @@ app.post("/upload-s3", authenticateToken, upload.single('file'), async (req: Aut
             const user = User.find({ id });
             if(!user) res.status(401).json({ message: "User was not found." });
 
-            await Video.create({ userId:id, vidURL: presignedUrl, title: filename });
+            await Video.create({ userId:id, vidURL: uploadResult.Location, title: filename });
 
             res.json({
                 message: "Video uploaded successfully.",
@@ -131,6 +131,45 @@ app.post("/upload-s3", authenticateToken, upload.single('file'), async (req: Aut
     } catch (error) {
         console.error("Error during file upload:", error);
         res.status(500).json({ message: "Error uploading file" });
+    }
+})
+
+app.post("/uploadS3", authenticateToken, async (req: AuthenticatedRequest, res) => {
+    try {
+        const userData = req.user as { email: string; id: string; userName: string };
+        
+        const presignedUrl = await putPresignedUrl(req.body.key);
+        
+        const {id} = userData;
+        const user = User.find({ id });
+        if(!user) res.status(401).json({ message: "User was not found." });
+
+        res.json({
+            message: "Video uploaded successfully.",
+            url: presignedUrl
+        })
+    } catch (error) {
+        console.error("Error during file upload:", error);
+        res.status(500).json({ message: "Error uploading file" });
+    }
+})
+
+app.get("/uploadSuccess", authenticateToken, async (req: AuthenticatedRequest, res)=> {
+    try {
+        const userData = req.user as { email: string; id: string; userName: string };
+        const vidURL = `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${req.query.key}`;
+        const {id} = userData;
+        const user = User.find({ id });
+        if(!user) res.status(401).json({ message: "User was not found." });
+        await Video.create({ userId:id, vidURL, title: req.query.key });
+        const presignedUrl = await getPresignedUrl(req.query.key as string);
+        res.json({
+            message: "Video uploaded successfully.",
+            url: presignedUrl
+         })
+    } catch (e: any) {
+        console.log(e);
+        res.status(500).json({ message: e?.message ?? "Looks like something went wrong." })
     }
 })
 
