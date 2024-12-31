@@ -3,15 +3,17 @@ import VideoPlayer from './VideoPlayer.js';
 import { useRef } from 'react';
 import './App.css'
 import Upload from './components/Upload.js';
+import Player from 'video.js/dist/types/player.js';
 
 function Video() {
-  const playerRef = useRef(null);
+  const playerRef = useRef<Player|null> (null);
   const videoLink = import.meta.env.VITE_VIDEO_URL
 
   const videoPlayerOptions = {
     controls: true,
     responsive: true,
     fluid: true,
+    autoplay: false,
     sources: [
       {
         src: videoLink,
@@ -20,7 +22,7 @@ function Video() {
     ],
   };
 
-  const handlePlayerReady = (player: videojs.Player) => {
+  const handlePlayerReady = (player: Player) => {
     playerRef.current = player;
 
     player.on("waiting", () => {

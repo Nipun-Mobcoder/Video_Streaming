@@ -1,12 +1,23 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import React, { useRef, useEffect } from "react";
+import { useRef, useEffect } from "react";
 import videojs from "video.js";
+import Player from "video.js/dist/types/player";
 import "video.js/dist/video-js.css";
 
-export const VideoPlayer = (props: { options: any; onReady: any; }) => {
-  const videoRef = useRef(null);
-  const playerRef = useRef(null);
+interface optionType {
+  controls: boolean;
+  responsive: boolean;
+  fluid: boolean;
+  autoplay: boolean | "play" | "muted" | "any";
+  sources: {
+      src: unknown;
+      type: string;
+  }[];
+}
+
+export const VideoPlayer = (props: { options: optionType, onReady: (player: Player)=>void }) => {
+  const videoRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<Player|null>(null);
   const { options, onReady } = props;
 
   useEffect(() => {
@@ -14,7 +25,7 @@ export const VideoPlayer = (props: { options: any; onReady: any; }) => {
       const videoElement = document.createElement("video-js");
 
       videoElement.classList.add("vjs-big-play-centered");
-      videoRef.current.appendChild(videoElement);
+      videoRef?.current?.appendChild(videoElement);
 
       const player = (playerRef.current = videojs(videoElement, options, () => {
         videojs.log("player is ready");

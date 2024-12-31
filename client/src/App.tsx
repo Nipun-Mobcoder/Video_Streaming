@@ -1,8 +1,9 @@
 import { Navigate, Route, Routes } from "react-router-dom"
+import { ReactNode } from "react";
 import Form from "./Form"
 import Video from "./Video";
 
-const ProtectedRoutes = ({children}) => {
+const ProtectedRoutes = ({children}: {children : ReactNode}) => {
   
   const isLoggedIn = localStorage.getItem('user:token') !== null;
 

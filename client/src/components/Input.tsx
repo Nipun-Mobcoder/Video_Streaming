@@ -1,4 +1,17 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import { ChangeEventHandler } from "react"
+
+interface InputType {
+  label: string,
+  name: string,
+  type: string,
+  className: string,
+  inputClassName: string,
+  isRequired: boolean,
+  placeholder: string,
+  value: string | undefined,
+  onChange: ChangeEventHandler<HTMLInputElement>
+}
+
 const Input = ({
     label = '',
     name = '',
@@ -8,8 +21,8 @@ const Input = ({
     isRequired = true,
     placeholder = '',
     value = '',
-    onChange = (e: any) => {},
-}) => {
+    onChange,
+}: InputType) => {
   return (
     <div className={`${className}`}>
         <label htmlFor={name} className="block text-sm font-medium text-gray-800">{label}</label>
