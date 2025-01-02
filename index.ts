@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
-import { getPresignedUrl, putPresignedUrl, uploadToS3 } from './utils/s3.js';
+import { getPresignedUrl, putPresignedUrl, uploadHLSS3, uploadToS3 } from './utils/s3.js';
 import connectDB from './config/db.js';
 import User from './models/User.js';
 import jwt from "jsonwebtoken";
@@ -172,6 +172,86 @@ app.get("/uploadSuccess", authenticateToken, async (req: AuthenticatedRequest, r
         res.status(500).json({ message: e?.message ?? "Looks like something went wrong." })
     }
 })
+
+app.post('/uploadhlsS3', authenticateToken, async (req: AuthenticatedRequest, res): Promise<void> => {
+    try {
+        const { presignedUrl, fileName } = req.body;
+        if (!presignedUrl || !fileName) {
+            res.status(400).json({ message: "Presigned URL or file name not provided" });
+            return;
+        }
+    
+        const lessonId = uuidv4();
+        const outputPath = `/tmp/${lessonId}`;
+        const hlsPath = `${outputPath}/index.m3u8`;
+        console.log("hlsPath", hlsPath);
+        
+        if (!fs.existsSync(outputPath)) {
+            fs.mkdirSync(outputPath, { recursive: true });
+        }
+    
+        const ffmpegCommand = `ffmpeg -i "${presignedUrl}" -codec:v libx264 -codec:a aac -hls_time 4 -hls_playlist_type vod -hls_segment_filename "${outputPath}/segment%03d.ts" -start_number 0 ${hlsPath}`;
+        
+        exec(ffmpegCommand, async (error, stdout, stderr) => {
+            if (error) {
+                console.log(`exec error: ${error}`);
+                await fs.promises.rm(outputPath, { recursive: true, force: true });
+                res.status(500).json({ message: "Error processing video" });
+                return;
+            }
+            
+            console.log(`stdout: ${stdout}`);
+            console.log(`stderr: ${stderr}`);
+            
+            try {
+                const files = fs.readdirSync(outputPath);
+                const uploadPromises = files.map(file => {
+                    const filePath = path.join(outputPath, file);
+                    const mimetype = file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/MP2T';
+                    return uploadHLSS3(filePath, file, mimetype, lessonId);
+                });
+                const uploadedFiles = await Promise.all(uploadPromises);
+
+                const videoUrl = uploadedFiles.find(url => url.Location.endsWith('index.m3u8'))?.Location;
+
+                if (!videoUrl) {
+                    await fs.promises.rm(outputPath, { recursive: true, force: true });
+                    res.status(500).json({ message: "HLS index file not found after upload" });
+                    return;
+                }
+
+                const userData = req.user as { email: string; id: string; userName: string };
+                const { email, id } = userData;
+
+                console.log("Data is: ", userData)
+
+                const user = await User.findOne({ email });
+                if (!user) {
+                    await fs.promises.rm(outputPath, { recursive: true, force: true });
+                    res.status(401).json({ message: "User was not found." });
+                    return;
+                }
+                
+                await Video.create({ userId: id, vidURL: videoUrl, title: fileName });
+
+                await fs.promises.rm(outputPath, { recursive: true, force: true });
+                
+                res.json({
+                    message: "Video converted to HLS format and uploaded to S3",
+                    videoUrl,
+                    lessonId
+                });
+            } catch (uploadError) {
+                console.error(uploadError);
+                await fs.promises.rm(outputPath, { recursive: true, force: true });
+                res.status(500).json({ message: "Error uploading HLS files to S3" });
+            }
+        });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ e });
+    }
+});
 
 app.post("/register", async (req, res) => {
     try {

@@ -39,3 +39,13 @@ export const putPresignedUrl = (key: string) => {
   };
   return s3.getSignedUrlPromise('putObject', s3Params);
 };
+
+export const uploadHLSS3 = (path: string, filename: string, mimetype: string, lessonId: string) => {
+  const s3Params = {
+    Bucket: process.env.S3_BUCKET_NAME || '',
+    Key: `${lessonId}/${filename}`,
+    Body: readFileSync(path),
+    ContentType: mimetype,
+  };
+  return s3.upload(s3Params).promise();
+};

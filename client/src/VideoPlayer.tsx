@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
 import { useRef, useEffect } from "react";
 import videojs from "video.js";
 import Player from "video.js/dist/types/player";
@@ -10,7 +9,7 @@ interface optionType {
   fluid: boolean;
   autoplay: boolean | "play" | "muted" | "any";
   sources: {
-      src: unknown;
+      src: string | unknown;
       type: string;
   }[];
 }
@@ -29,7 +28,7 @@ export const VideoPlayer = (props: { options: optionType, onReady: (player: Play
 
       const player = (playerRef.current = videojs(videoElement, options, () => {
         videojs.log("player is ready");
-        onReady && onReady(player);
+        onReady(player);
       }));
     } else {
       const player = playerRef.current;
