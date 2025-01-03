@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
-import { getPresignedUrl, putPresignedUrl, uploadHLSS3, uploadToS3 } from './utils/s3.js';
+import { getPresignedUrl, putPresignedUrl, s3, uploadHLSS3, uploadToS3 } from './utils/s3.js';
 import connectDB from './config/db.js';
 import User from './models/User.js';
 import jwt from "jsonwebtoken";
@@ -190,7 +190,7 @@ app.post('/uploadhlsS3', authenticateToken, async (req: AuthenticatedRequest, re
             fs.mkdirSync(outputPath, { recursive: true });
         }
     
-        const ffmpegCommand = `ffmpeg -i "${presignedUrl}" -codec:v libx264 -codec:a aac -hls_time 4 -hls_playlist_type vod -hls_segment_filename "${outputPath}/segment%03d.ts" -start_number 0 ${hlsPath}`;
+        const ffmpegCommand = `ffmpeg -i "${presignedUrl}" -codec:v libx264 -codec:a aac -hls_time 10 -hls_playlist_type vod -hls_segment_filename "${outputPath}/segment%03d.ts" -start_number 0 ${hlsPath}`;
         
         exec(ffmpegCommand, async (error, stdout, stderr) => {
             if (error) {
@@ -222,8 +222,6 @@ app.post('/uploadhlsS3', authenticateToken, async (req: AuthenticatedRequest, re
 
                 const userData = req.user as { email: string; id: string; userName: string };
                 const { email, id } = userData;
-
-                console.log("Data is: ", userData)
 
                 const user = await User.findOne({ email });
                 if (!user) {
@@ -287,6 +285,76 @@ app.post("/login", async (req, res) => {
         console.log(e);
         res.status(400).json({ message: e?.message ?? "Looks like something went wrong." });
     }
+})
+
+app.post("/startMultipart", async (req, res) => {
+    try {
+        const { fileName, contentType } = req.body;
+        const params = {
+            Bucket: process.env.S3_BUCKET_NAME ?? '',
+            Key: fileName,
+            ContentDisposition: contentType === "VIDEO" ? "inline" : "attachment",
+            ContentType: contentType === "VIDEO" ? "video/mp4" : "application/octet-stream",
+          };
+    
+        const multipart = await s3.createMultipartUpload(params).promise();
+        res.json({ uploadId: multipart.UploadId });
+    } catch(e) {
+        res.status(500).json(e);
+    }
+});
+
+app.post("/generateMultipart", async (req, res) => {
+    try {
+        const {fileName, uploadId, partNumbers} = req.body;
+        const totalParts = Array.from({ length: partNumbers }, (_, i) => i + 1);
+  
+        const presignedUrls = await Promise.all(
+          totalParts.map(async (partNumber) => {
+            const params = {
+              Bucket: process.env.S3_BUCKET_NAME,
+              Key: fileName,
+              PartNumber: partNumber,
+              UploadId: uploadId,
+              Expires: 60 * 60
+            };
+  
+            return s3.getSignedUrl("uploadPart", params);
+          })
+        );
+  
+        res.json({presignedUrls});
+      } catch (e) {
+        console.log(e);
+        res.status(500).json(e);
+      }
+})
+
+app.post("/completeMultipart",authenticateToken,  async (req: AuthenticatedRequest, res) => {
+      const {fileName, uploadId, parts} = req.body;
+
+      const params = {
+        Bucket: process.env.S3_BUCKET_NAME ?? "",
+        Key: fileName,
+        UploadId: uploadId,
+        MultipartUpload: {
+          Parts: parts.map((part: { etag: string; }, index: number) => ({
+            ETag: part.etag,
+            PartNumber: index + 1,
+          })),
+        },
+      };
+
+      try {
+        const data = await s3.completeMultipartUpload(params).promise();
+        const fileUrl = data.Location;
+        const presignedUrl = await getPresignedUrl(fileUrl??'');
+
+        res.json({ message: "Message sent successfully", presignedUrl });
+      } catch (e) {
+        console.log(e);
+        res.status(500).json(e);
+      }
 })
 
 connectDB();
