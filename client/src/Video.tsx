@@ -4,7 +4,8 @@ import { useRef } from 'react';
 import './App.css'
 // import Upload from './components/Upload.js';
 import Player from 'video.js/dist/types/player.js';
-import MultipartUpload from './components/MultipartUpload.js';
+// import MultipartUpload from './components/MultipartUpload.js';
+import Upload from './components/Upload.js';
 
 function Video() {
   const playerRef = useRef<Player|null> (null);
@@ -41,7 +42,7 @@ function Video() {
         <h1>Video Player</h1>
       </div>
       <VideoPlayer options={videoPlayerOptions} onReady={handlePlayerReady} />
-      <MultipartUpload />
+      <Upload />
     </>
   );
 }

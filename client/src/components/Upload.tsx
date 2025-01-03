@@ -19,6 +19,17 @@ const Upload = () => {
                 headers: {
                     "Content-Type": file.type,
                 },
+            onUploadProgress: (progressEvent) => {
+                const percentComplete = Math.round(
+                    (progressEvent.loaded / (progressEvent?.total ?? 100)) * 100
+                );
+                console.log(`Upload Progress: ${percentComplete}%`);
+                const progressBar = document.getElementById("progress-bar");
+                if (progressBar) {
+                    progressBar.style.width = `${percentComplete}%`;
+                    progressBar.textContent = `${percentComplete}%`;
+                }
+            },
             });
             await axios.get(`http://localhost:5000/uploadSuccess?key=${file.name}`,{headers: { "authorization": localStorage.getItem("user:token") || "" }} );
             alert("File uploaded successfully!");
@@ -30,6 +41,14 @@ const Upload = () => {
 
     return (
         <form onSubmit={(e) => e.preventDefault()}>
+            <div style={{width: "100%", backgroundColor: "#f3f3f3", border: "1px solid #ccc"}}>
+                <div
+                    id="progress-bar"
+                    style={{width: "0%", backgroundColor: "#4caf50", textAlign: "center", color: "white"}}
+                >
+                    0%
+                </div>
+            </div>
             <input
                 type="file"
                 onChange={(e) => {
