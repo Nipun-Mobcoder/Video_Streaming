@@ -18,27 +18,20 @@ const Form = ({
     const navigate = useNavigate();
 
     const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
+      e.preventDefault();
+      try {
         if(!isSignInPage){
-          try {
-            await axios.post('http://localhost:5000/register', { email: data.email, password: data.password, userName: data.fullName })
-            navigate('/sign_in');
-          }
-          catch (e) {
-            console.log(e);
-          }
+          await axios.post(`${import.meta.env.VITE_API_URL}/register`, { email: data.email, password: data.password, userName: data.fullName })
+          navigate('/sign_in');
         }
         else {
-          try {
-            const val = await axios.post('http://localhost:5000/login', { email: data.email, password: data.password })
-            localStorage.setItem('user:token', val.data.token);
-            localStorage.setItem('user:data', JSON.stringify(val.data.user));
-            navigate('/');
-          }
-          catch (e) {
-            console.log(e);
-          }
+          const val = await axios.post(`${import.meta.env.VITE_API_URL}/login`, { email: data.email, password: data.password })
+          localStorage.setItem('user:token', val.data.token);
+          navigate('/');
         }
+      } catch (e) {
+        console.log(e);
+      }
     }
 
   return (

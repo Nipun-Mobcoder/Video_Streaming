@@ -16,7 +16,7 @@ const MultipartUpload = () => {
             const totalSize = file.size;
             const partNumbers = Math.ceil(totalSize / CHUNK_SIZE);
             
-            const data = await axios.post<{uploadId: string}>("http://localhost:5000/startMultipart",
+            const data = await axios.post<{uploadId: string}>(`${import.meta.env.VITE_API_URL}/startMultipart`,
                 {fileName: file.name, contentType: file.type},
                 {headers: { "authorization": localStorage.getItem("user:token") || "" }}
             )
@@ -24,7 +24,7 @@ const MultipartUpload = () => {
             const {uploadId} = data.data;
         
             if (uploadId) {
-                const generateData = await axios.post<{presignedUrls: string[]}>("http://localhost:5000/generateMultipart",
+                const generateData = await axios.post<{presignedUrls: string[]}>(`${import.meta.env.VITE_API_URL}/generateMultipart`,
                     { fileName: file.name, uploadId, partNumbers },
                     {headers: { "authorization": localStorage.getItem("user:token") || "" }}
                 );
@@ -58,26 +58,25 @@ const MultipartUpload = () => {
                     }
         
                     const uploadResponses = await Promise.all(uploadPromises);
-                        uploadResponses.forEach((response, i) => {
-                            parts.push({
-                                etag: response.headers.etag,
-                                PartNumber: i + 1,
-                            });
+                    uploadResponses.forEach((response, i) => {
+                        parts.push({
+                            etag: response.headers.etag,
+                            PartNumber: i + 1
+                        });
                     });
-            
 
-                await axios.post("http://localhost:5000/completeMultipart",
-                    { fileName: file.name, uploadId, parts },
-                    {headers: { "authorization": localStorage.getItem("user:token") || "" }}
-                )
+                    await axios.post(`${import.meta.env.VITE_API_URL}/completeMultipart`,
+                        { fileName: file.name, uploadId, parts },
+                        {headers: { "authorization": localStorage.getItem("user:token") || "" }}
+                    )
 
-                alert("File uploaded successfully!");
+                    alert("File uploaded successfully!");
+                }
             }
-        }
         } catch (error) {
             console.error("Error during file upload:", error);
             alert("Failed to upload file.");
-        }finally {
+        } finally {
             setUploadProgress(0);
         }
     };

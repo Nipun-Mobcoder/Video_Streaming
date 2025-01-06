@@ -12,7 +12,7 @@ const Upload = () => {
 
     const handleFileUpload = async (file: File) => {
         try {
-            const data = await axios.post<{url: string}>("http://localhost:5000/uploads3",
+            const data = await axios.post<{url: string}>(`${import.meta.env.VITE_API_URL}/uploads3`,
                 {key: file.name},
                 {headers: { "authorization": localStorage.getItem("user:token") || "" }}
             )
@@ -30,7 +30,7 @@ const Upload = () => {
                     console.log(`Upload Progress: ${percentComplete}%`);
                 },
             });
-            await axios.get(`http://localhost:5000/uploadSuccess?key=${file.name}`,{headers: { "authorization": localStorage.getItem("user:token") || "" }} );
+            await axios.get(`${import.meta.env.VITE_API_URL}/uploadSuccess?key=${file.name}`,{headers: { "authorization": localStorage.getItem("user:token") || "" }} );
             alert("File uploaded successfully!");
         } catch (error) {
             console.error("Error during file upload:", error);
