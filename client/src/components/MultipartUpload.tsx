@@ -1,4 +1,7 @@
 import axios from "axios";
+import { useState } from "react";
+
+const CHUNK_SIZE = 10 * 1024 * 1024;
 
 const MultipartUpload = () => {
 
@@ -7,10 +10,12 @@ const MultipartUpload = () => {
         return /\.(mp4)$/i.test(cleanUrl);
       }
 
+    const [uploadProgress, setUploadProgress] = useState<number>(0);
     const handleFileUpload = async (file: File) => {
         try {
             const totalSize = file.size;
-            const partNumbers = Math.ceil(totalSize / 10000000);
+            const partNumbers = Math.ceil(totalSize / CHUNK_SIZE);
+            
             const data = await axios.post<{uploadId: string}>("http://localhost:5000/startMultipart",
                 {fileName: file.name, contentType: file.type},
                 {headers: { "authorization": localStorage.getItem("user:token") || "" }}
@@ -19,7 +24,7 @@ const MultipartUpload = () => {
             const {uploadId} = data.data;
         
             if (uploadId) {
-                const generateData = await axios.post<{presignedUrls: string}>("http://localhost:5000/generateMultipart",
+                const generateData = await axios.post<{presignedUrls: string[]}>("http://localhost:5000/generateMultipart",
                     { fileName: file.name, uploadId, partNumbers },
                     {headers: { "authorization": localStorage.getItem("user:token") || "" }}
                 );
@@ -28,40 +33,52 @@ const MultipartUpload = () => {
                 if (presignedUrls) {
                     const parts:{ etag: string; PartNumber: number }[] = [];
                     const uploadPromises = [];
+                    let totalUploaded = 0;
             
                     for (let i = 0; i < partNumbers; i++) {
-                    const start = i * 10000000;
-                    const end = Math.min(start + 10000000, totalSize);
-                    const chunk = file.slice(start, end);
-                    const presignedUrl = presignedUrls[i];
-            
-                    uploadPromises.push(
-                        axios.put(presignedUrl, chunk, {
-                        headers: {
-                            "Content-Type": file.type,
-                        },
-                        })
-                    );
+                        const start = i * CHUNK_SIZE;
+                        const end = Math.min(start + CHUNK_SIZE, totalSize);
+                        const chunk = file.slice(start, end);
+                        const presignedUrl = presignedUrls[i];
+                        let chunkUploaded = 0;
+
+                        uploadPromises.push(
+                            axios.put(presignedUrl, chunk, {
+                                headers: { "Content-Type": file.type },
+                                onUploadProgress: (progressEvent) => {
+                                    const chunkProgress = progressEvent.loaded - chunkUploaded;
+                                    chunkUploaded = progressEvent.loaded;
+                                    totalUploaded += chunkProgress;
+                                    const overallProgress = Math.round((totalUploaded * 100) / totalSize);
+                                    console.log(`Upload Progress: ${overallProgress}%`);
+                                    setUploadProgress(overallProgress);
+                                },
+                            })
+                        );
                     }
         
-                const uploadResponses = await Promise.all(uploadPromises);
-        
-                uploadResponses.forEach((response, i) => {
-                    parts.push({
-                        etag: response.headers.etag,
-                        PartNumber: i + 1,
+                    const uploadResponses = await Promise.all(uploadPromises);
+                        uploadResponses.forEach((response, i) => {
+                            parts.push({
+                                etag: response.headers.etag,
+                                PartNumber: i + 1,
+                            });
                     });
-                });
+            
 
-                await axios.post<{presignedUrl: string}>("http://localhost:5000/completeMultipart",
+                await axios.post("http://localhost:5000/completeMultipart",
                     { fileName: file.name, uploadId, parts },
                     {headers: { "authorization": localStorage.getItem("user:token") || "" }}
                 )
+
+                alert("File uploaded successfully!");
             }
         }
         } catch (error) {
             console.error("Error during file upload:", error);
             alert("Failed to upload file.");
+        }finally {
+            setUploadProgress(0);
         }
     };
 
@@ -95,6 +112,29 @@ const MultipartUpload = () => {
             >
                 Multipart Upload
             </label>
+            {uploadProgress > 0 && (
+                <div style={{ marginTop: "20px" }}>
+                    <div
+                        style={{
+                            width: "100%",
+                            backgroundColor: "#f3f3f3",
+                            border: "1px solid #ccc",
+                        }}
+                    >
+                        <div
+                            style={{
+                                width: `${uploadProgress}%`,
+                                backgroundColor: "#4caf50",
+                                textAlign: "center",
+                                color: "white",
+                                padding: "5px 0",
+                            }}
+                        >
+                            {uploadProgress}%
+                        </div>
+                    </div>
+                </div>
+            )}
         </form>
     );
 };

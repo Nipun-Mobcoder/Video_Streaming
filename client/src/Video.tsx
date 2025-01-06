@@ -2,8 +2,7 @@ import videojs from 'video.js';
 import VideoPlayer from './VideoPlayer.js';
 import { useRef } from 'react';
 import './App.css'
-// import Upload from './components/Upload.js';
-import Player from 'video.js/dist/types/player.js';
+import Player from 'video.js/dist/types/player.js'
 // import MultipartUpload from './components/MultipartUpload.js';
 import Upload from './components/Upload.js';
 
