@@ -1,14 +1,15 @@
 import videojs from 'video.js';
 import VideoPlayer from './VideoPlayer.js';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import './App.css'
 import Player from 'video.js/dist/types/player.js'
-// import MultipartUpload from './components/MultipartUpload.js';
-import Upload from './components/Upload.js';
+import Segment from './components/Segment.js';
 
 function Video() {
   const playerRef = useRef<Player|null> (null);
   const videoLink = import.meta.env.VITE_VIDEO_URL
+
+  const [URL, setURL] = useState<string>(videoLink as string)
 
   const videoPlayerOptions = {
     controls: true,
@@ -17,7 +18,7 @@ function Video() {
     autoplay: false,
     sources: [
       {
-        src: videoLink,
+        src: URL,
         type: "application/x-mpegURL",
       },
     ],
@@ -41,7 +42,7 @@ function Video() {
         <h1>Video Player</h1>
       </div>
       <VideoPlayer options={videoPlayerOptions} onReady={handlePlayerReady} />
-      <Upload />
+      <Segment setURL={setURL} />
     </>
   );
 }
