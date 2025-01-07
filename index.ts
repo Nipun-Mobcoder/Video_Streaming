@@ -12,6 +12,7 @@ import User from './models/User.js';
 import jwt from "jsonwebtoken";
 import { authenticateToken } from './utils/configToken.js';
 import Video from './models/Video.js';
+import client from './config/client.js';
 
 const app = express();
 dotenv.config();
@@ -181,6 +182,12 @@ app.post('/uploadhlsS3', authenticateToken, async (req: AuthenticatedRequest, re
             return;
         }
     
+        const channelName = 'video-stream';
+        let segmentCount = 0;
+        let uploadedCount = 0;
+
+        const email = req.user?.email;
+
         const lessonId = uuidv4();
         const outputPath = `/tmp/${lessonId}`;
         const hlsPath = `${outputPath}/index.m3u8`;
@@ -196,6 +203,7 @@ app.post('/uploadhlsS3', authenticateToken, async (req: AuthenticatedRequest, re
             if (error) {
                 console.log(`exec error: ${error}`);
                 await fs.promises.rm(outputPath, { recursive: true, force: true });
+                await client.publish(channelName, JSON.stringify({ status: "error", message: "Error processing video" }));
                 res.status(500).json({ message: "Error processing video" });
                 return;
             }
@@ -205,10 +213,17 @@ app.post('/uploadhlsS3', authenticateToken, async (req: AuthenticatedRequest, re
             
             try {
                 const files = fs.readdirSync(outputPath);
-                const uploadPromises = files.map(file => {
+                const uploadPromises = files.map(async file => {
+                    if (file.endsWith('.ts') || file.endsWith('.m3u8')) {
+                        segmentCount++;
+                        await client.publish(channelName, JSON.stringify({ status: "progress-creating-segments", segmentsCreated: segmentCount }));
+                    }
                     const filePath = path.join(outputPath, file);
                     const mimetype = file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/MP2T';
-                    return uploadHLSS3(filePath, file, mimetype, lessonId);
+                    const result = await uploadHLSS3(filePath, file, mimetype, lessonId);
+                    uploadedCount++;
+                    await client.publish(channelName, JSON.stringify({ status: "progress-uploading-segments-on-S3", segmentsUploaded: uploadedCount }));
+                    return result;
                 });
                 const uploadedFiles = await Promise.all(uploadPromises);
 
@@ -216,6 +231,7 @@ app.post('/uploadhlsS3', authenticateToken, async (req: AuthenticatedRequest, re
 
                 if (!videoUrl) {
                     await fs.promises.rm(outputPath, { recursive: true, force: true });
+                    await client.publish(channelName, JSON.stringify({ status: "error", message: "HLS index file not found after upload" }));
                     res.status(500).json({ message: "HLS index file not found after upload" });
                     return;
                 }
@@ -233,6 +249,12 @@ app.post('/uploadhlsS3', authenticateToken, async (req: AuthenticatedRequest, re
                 await Video.create({ userId: id, vidURL: videoUrl, title: fileName });
 
                 await fs.promises.rm(outputPath, { recursive: true, force: true });
+
+                await client.publish(channelName, JSON.stringify({
+                        status: "complete",
+                        message: "Upload complete",
+                        videoUrl,
+                    }));
                 
                 res.json({
                     message: "Video converted to HLS format and uploaded to S3",
@@ -241,6 +263,7 @@ app.post('/uploadhlsS3', authenticateToken, async (req: AuthenticatedRequest, re
                 });
             } catch (uploadError) {
                 console.error(uploadError);
+                await client.publish(channelName, JSON.stringify({ status: "error", message: "Error uploading HLS files to S3" }));
                 await fs.promises.rm(outputPath, { recursive: true, force: true });
                 res.status(500).json({ message: "Error uploading HLS files to S3" });
             }
@@ -357,7 +380,235 @@ app.post("/completeMultipart",authenticateToken,  async (req: AuthenticatedReque
       }
 })
 
+app.post('/uploadfileS3', authenticateToken, async (req: AuthenticatedRequest, res): Promise<void> => {
+    try {
+        const { presignedUrl, fileName } = req.body;
+        if (!presignedUrl || !fileName) {
+            res.status(400).json({ message: "Presigned URL or file name not provided" });
+            return;
+        }
+    
+        const channelName = 'video-stream';
+        let segmentCount = 0;
+        let uploadedCount = 0;
+
+        const email = req.user?.email;
+
+        const lessonId = uuidv4();
+        const outputPath = `/tmp/${lessonId}`;
+        const hlsPath = `${outputPath}/index.m3u8`;
+        console.log("hlsPath", hlsPath);
+        
+        if (!fs.existsSync(outputPath)) {
+            fs.mkdirSync(outputPath, { recursive: true });
+        }
+    
+        const ffmpegCommand = `ffmpeg -i "${presignedUrl}" -codec:v libx264 -codec:a aac -hls_time 10 -hls_playlist_type vod -hls_segment_filename "${outputPath}/segment%03d.ts" -start_number 0 -progress pipe:1 ${hlsPath}`;
+
+        const ffmpegProcess = exec(ffmpegCommand);
+
+        ffmpegProcess.stdout?.on('data', async (data) => {
+            const output = data.toString();
+
+            if (output.includes('frame=')) {
+                console.log(output);
+                segmentCount++;
+                await client.publish(channelName, JSON.stringify({
+                    status: "progress-segment-create",
+                    message: `Segment ${segmentCount} created`,
+                    segmentsCreated: segmentCount,
+                }));
+            }
+        });
+
+        ffmpegProcess.stderr?.on('data', (data) => {
+            console.error(`FFmpeg stderr: ${data}`);
+        });
+
+        ffmpegProcess.on('close', async (code) => {
+            if (code !== 0) {
+                console.error(`FFmpeg exited with code ${code}`);
+                await client.publish(channelName, JSON.stringify({
+                    status: "error",
+                    message: "Error processing video",
+                }));
+                await fs.promises.rm(outputPath, { recursive: true, force: true });
+                res.status(500).json({ message: "Error processing video" });
+                return;
+            }
+
+            console.log("FFmpeg processing complete. Uploading segments...");
+
+            try {
+                const files = fs.readdirSync(outputPath);
+
+                const uploadPromises = files.map(async (file) => {
+                    if (file.endsWith('.ts') || file.endsWith('.m3u8')) {
+                        const filePath = path.join(outputPath, file);
+                        const mimetype = file.endsWith('.m3u8')
+                            ? 'application/vnd.apple.mpegurl'
+                            : 'video/MP2T';
+                        const result = await uploadHLSS3(filePath, file, mimetype, lessonId);
+
+                        uploadedCount++;
+                        await client.publish(channelName, JSON.stringify({
+                            status: "progress-segment-upload-on-s3",
+                            message: `Segment ${uploadedCount} uploaded`,
+                            segmentsUploaded: uploadedCount,
+                        }));
+
+                        return result;
+                    }
+                });
+
+                const uploadedFiles = await Promise.all(uploadPromises);
+
+                const videoUrl = uploadedFiles.find((url) =>
+                    url?.Location.endsWith('index.m3u8')
+                )?.Location;
+
+                if (!videoUrl) {
+                    await fs.promises.rm(outputPath, { recursive: true, force: true });
+                    await client.publish(channelName, JSON.stringify({
+                        status: "error",
+                        message: "HLS index file not found after upload",
+                    }));
+                    res.status(500).json({ message: "HLS index file not found after upload" });
+                    return;
+                }
+
+                const userData = req.user as { email: string; id: string; userName: string };
+                const { email, id } = userData;
+
+                const user = await User.findOne({ email });
+                if (!user) {
+                    await fs.promises.rm(outputPath, { recursive: true, force: true });
+                    res.status(401).json({ message: "User was not found." });
+                    return;
+                }
+
+                await Video.create({ userId: id, vidURL: videoUrl, title: fileName });
+
+                await fs.promises.rm(outputPath, { recursive: true, force: true });
+
+                await client.publish(channelName, JSON.stringify({
+                    status: "complete",
+                    message: "Upload complete",
+                    videoUrl
+                }));
+
+                res.json({
+                    message: "Video converted to HLS format and uploaded to S3",
+                    videoUrl,
+                    lessonId
+                });
+            } catch (uploadError) {
+                console.error(uploadError);
+                await client.publish(channelName, JSON.stringify({ status: "error", message: "Error uploading HLS files to S3" }));
+                await fs.promises.rm(outputPath, { recursive: true, force: true });
+                res.status(500).json({ message: "Error uploading HLS files to S3" });
+            }
+        });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ e });
+    }
+});
+
+app.post('/uploadCourse', authenticateToken, upload.single('file'), async (req: AuthenticatedRequest, res): Promise<void> => {
+    try {
+        if (!req.file) {
+            res.status(400).json({ message: "No file uploaded" });
+        }
+        const lessonId = uuidv4();
+        const videoPath = req.file?.path;
+        const outputPath = `./uploads/courses/${lessonId}`;
+        const hlsPath = `${outputPath}/index.m3u8`;
+        console.log("hlsPath", hlsPath);
+
+        const fileName = req.file?.filename;
+
+        const channelName = 'video-stream';
+        let segmentCount = 0;
+    
+        if (!fs.existsSync(outputPath)) {
+            fs.mkdirSync(outputPath, {recursive: true});
+        }
+    
+        const ffmpegCommand = `ffmpeg -i "${videoPath}" -codec:v libx264 -codec:a aac -hls_time 10 -hls_playlist_type vod -hls_segment_filename "${outputPath}/segment%03d.ts" -start_number 0 -progress pipe:1 ${hlsPath}`;
+
+        const ffmpegProcess = exec(ffmpegCommand);
+
+        ffmpegProcess.stdout?.on('data', async (data) => {
+            const output = data.toString();
+
+            if (output.includes('frame=')) {
+                console.log(output);
+                segmentCount++;
+                if(segmentCount%10 === 0)
+                    await client.publish(channelName, JSON.stringify({
+                        status: "progress-segment-create",
+                        message: `Segment ${segmentCount} created`,
+                        segmentsCreated: segmentCount,
+                    }));
+            }
+        });
+
+        ffmpegProcess.stderr?.on('data', (data) => {
+            console.error(`FFmpeg stderr: ${data}`);
+        });
+
+        ffmpegProcess.on('close', async (code) => {
+            if (code !== 0) {
+                console.error(`FFmpeg exited with code ${code}`);
+                await client.publish(channelName, JSON.stringify({
+                    status: "error",
+                    message: "Error processing video",
+                }));
+                res.status(500).json({ message: "Error processing video" });
+                return;
+            }
+
+            console.log("FFmpeg processing complete. Uploading segments...");
+
+            try {
+                const videoUrl = `http://localhost:8000/uploads/courses/${lessonId}/index.m3u8`;
+
+                const userData = req.user as { email: string; id: string; userName: string };
+                const { email, id } = userData;
+
+                const user = await User.findOne({ email });
+                if (!user) {
+                    res.status(401).json({ message: "User was not found." });
+                    return;
+                }
+
+                await Video.create({ userId: id, vidURL: videoUrl, title: fileName });
+
+                await client.publish(channelName, JSON.stringify({
+                    status: "complete",
+                    message: "Upload complete",
+                    videoUrl
+                }));
+
+                res.json({
+                    message: "Video converted to HLS format and uploaded to S3",
+                    videoUrl,
+                    lessonId
+                });
+            } catch (uploadError) {
+                console.error(uploadError);
+                await client.publish(channelName, JSON.stringify({ status: "error", message: "Error uploading HLS files to S3" }));
+                res.status(500).json({ message: "Error uploading HLS files to S3" });
+            }
+        });
+    } catch (e) {
+        console.log(e);
+        res.status(400).json(e)
+    }
+});
+
 connectDB();
-app.listen(5000, () => {
-    console.log("App is listening on http://localhost:5000");
+app.listen(8000, () => {
+    console.log("App is listening on http://localhost:8000");
 })
