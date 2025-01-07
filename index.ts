@@ -392,8 +392,7 @@ app.post('/uploadfileS3', authenticateToken, async (req: AuthenticatedRequest, r
         const channelName = 'video-stream';
         let segmentCount = 0;
         let uploadedCount = 0;
-
-        const email = req.user?.email;
+        let segmentsCreated = 0;
 
         const lessonId = uuidv4();
         const outputPath = `/tmp/${lessonId}`;
@@ -403,6 +402,9 @@ app.post('/uploadfileS3', authenticateToken, async (req: AuthenticatedRequest, r
         if (!fs.existsSync(outputPath)) {
             fs.mkdirSync(outputPath, { recursive: true });
         }
+
+        const duration = await getVideoFrame(req.file?.path as string)
+        const timeDuration = Math.ceil((duration as number)/10);
     
         const ffmpegCommand = `ffmpeg -i "${presignedUrl}" -codec:v libx264 -codec:a aac -hls_time 10 -hls_playlist_type vod -hls_segment_filename "${outputPath}/segment%03d.ts" -start_number 0 -progress pipe:1 ${hlsPath}`;
 
@@ -412,12 +414,17 @@ app.post('/uploadfileS3', authenticateToken, async (req: AuthenticatedRequest, r
             const output = data.toString();
 
             if (output.includes('frame=')) {
-                console.log(output);
                 segmentCount++;
+                segmentsCreated = Math.floor(parseInt(output.split('frame=')[1].trim()) / 10);
+    
+                const progress = Math.floor((segmentsCreated / timeDuration) * 100);
+                
                 await client.publish(channelName, JSON.stringify({
                     status: "progress-segment-create",
                     message: `Segment ${segmentCount} created`,
-                    segmentsCreated: segmentCount,
+                    segmentsCreated: segmentsCreated,
+                    loading: progress,
+                    timeDuration
                 }));
             }
         });
@@ -548,7 +555,6 @@ app.post('/uploadCourse', authenticateToken, upload.single('file'), async (req: 
             const output = data.toString();
 
             if (output.includes('frame=')) {
-                console.log(output);
                 segmentCount++;
                 segmentsCreated = Math.floor(parseInt(output.split('frame=')[1].trim()) / 10);
     
