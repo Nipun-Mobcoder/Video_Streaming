@@ -16,23 +16,6 @@
 7. Clean up temporary files.
 8. Return the URL of the uploaded HLS file to the client.
 
-### Response
-#### Success (200):
-```json
-{
-  "message": "Video converted to HLS format and uploaded to S3",
-  "videoUrl": "<URL_of_HLS_index_file>",
-  "lessonId": "<lessonId>"
-}
-```
-
-#### Error (400/500):
-```json
-{
-  "message": "Error message explaining the issue"
-}
-```
-
 ## Implementation Details
 
 ### Key Functionalities
@@ -57,16 +40,13 @@ Uploads the `.ts` and `.m3u8` files to S3 using the `uploadHLSS3` helper functio
 #### 4. **MongoDB Video Metadata**:
 The video metadata, including the uploaded HLS playlist URL and the user ID, is stored in a MongoDB collection.
 
+#### 5. **Web Socket**:
+The progress is sent to another service (microservice) through redis which sends it to the frontend using websockets.
+
 ### Error Handling
 - If any step fails (e.g., FFmpeg processing, file upload, or database operations), the server cleans up temporary files and publishes an error message to the Redis channel.
 
 ### Temporary File Management
 - Temporary files are stored in `/tmp/<lessonId>` during processing.
 - Files are deleted after successful upload or on error.
-
-
-## References
-- **FFmpeg Documentation**: [https://ffmpeg.org/documentation.html](https://ffmpeg.org/documentation.html)
-- **AWS S3 SDK**: [https://docs.aws.amazon.com/sdk-for-javascript/](https://docs.aws.amazon.com/sdk-for-javascript/)
-- **Socket.IO**: [https://socket.io/docs/](https://socket.io/docs/)
 
