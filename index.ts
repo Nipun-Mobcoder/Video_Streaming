@@ -14,13 +14,14 @@ import { authenticateToken } from './utils/configToken.js';
 import Video from './models/Video.js';
 import client from './config/client.js';
 import getVideoFrame from './utils/getVideoFrame.js';
+import getVideoDuration from './utils/getVideoDuration.js';
 
 const app = express();
 dotenv.config();
 
 app.use(
     cors({
-        origin: process.env.CLIENT_URL,
+        origin: [process.env.CLIENT_URL ?? '', process.env.CLIENT_URL_2 ?? ''],
         credentials: true
     })
 )
@@ -403,8 +404,11 @@ app.post('/uploadfileS3', authenticateToken, async (req: AuthenticatedRequest, r
             fs.mkdirSync(outputPath, { recursive: true });
         }
 
-        const duration = await getVideoFrame(req.file?.path as string)
-        const timeDuration = Math.ceil((duration as number)/10);
+        const frameNumber = await getVideoFrame(presignedUrl as string);
+        const totalFrames = Math.ceil((frameNumber as number)/10);
+
+        const duration = await getVideoDuration(presignedUrl as string);
+        const totalDuration = Math.ceil((duration as number)/10)
     
         const ffmpegCommand = `ffmpeg -i "${presignedUrl}" -codec:v libx264 -codec:a aac -hls_time 10 -hls_playlist_type vod -hls_segment_filename "${outputPath}/segment%03d.ts" -start_number 0 -progress pipe:1 ${hlsPath}`;
 
@@ -417,14 +421,14 @@ app.post('/uploadfileS3', authenticateToken, async (req: AuthenticatedRequest, r
                 segmentCount++;
                 segmentsCreated = Math.floor(parseInt(output.split('frame=')[1].trim()) / 10);
     
-                const progress = Math.floor((segmentsCreated / timeDuration) * 100);
+                const progress = Math.floor((segmentsCreated / totalFrames) * 100);
                 
                 await client.publish(channelName, JSON.stringify({
                     status: "progress-segment-create",
                     message: `Segment ${segmentCount} created`,
                     segmentsCreated: segmentsCreated,
                     loading: progress,
-                    timeDuration
+                    totalFrames
                 }));
             }
         });
@@ -459,10 +463,14 @@ app.post('/uploadfileS3', authenticateToken, async (req: AuthenticatedRequest, r
                         const result = await uploadHLSS3(filePath, file, mimetype, lessonId);
 
                         uploadedCount++;
+                        const progress = Math.floor((uploadedCount / totalDuration) * 100);
+
                         await client.publish(channelName, JSON.stringify({
                             status: "progress-segment-upload-on-s3",
                             message: `Segment ${uploadedCount} uploaded`,
                             segmentsUploaded: uploadedCount,
+                            progress,
+                            totalDuration
                         }));
 
                         return result;
