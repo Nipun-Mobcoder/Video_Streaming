@@ -49,3 +49,4 @@ The progress is sent to another service (microservice) through redis which sends
 ### Temporary File Management
 - Temporary files are stored in `/tmp/<lessonId>` during processing.
 - Files are deleted after successful upload or on error.
+
